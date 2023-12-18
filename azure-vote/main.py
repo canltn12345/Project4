@@ -8,11 +8,11 @@ import logging
 from datetime import datetime
 
 # App Insights
-# TODO: Import required libraries for App Insights
-from opencensus.ext.azure import metrics_exporter
-from opencensus.ext.azure.log_exporter import AzureEventHandler, AzureLogHandler
+from opencensus.ext.azure.log_exporter import AzureLogHandler
+from opencensus.ext.azure.log_exporter import AzureEventHandler
 from opencensus.ext.azure.trace_exporter import AzureExporter
 from opencensus.ext.flask.flask_middleware import FlaskMiddleware
+from opencensus.ext.azure import metrics_exporter
 from opencensus.stats import aggregation as aggregation_module
 from opencensus.stats import measure as measure_module
 from opencensus.stats import stats as stats_module
@@ -22,52 +22,36 @@ from opencensus.trace import config_integration
 from opencensus.trace.samplers import ProbabilitySampler
 from opencensus.trace.tracer import Tracer
 
-# For metrics
+# For Metrics
 stats = stats_module.stats
 view_manager = stats.view_manager
-config_integration.trace_integrations(["logging"])
-config_integration.trace_integrations(["requests"])
+config_integration.trace_integrations(['logging'])
+config_integration.trace_integrations(['requests'])
 
 # Logging
 logger = logging.getLogger(__name__)
-handler = AzureLogHandler(
-    connection_string="InstrumentationKey=ff40e07d-6204-431b-90e3-cc4deed86732"
-)
-handler.setFormatter(logging.Formatter("%(traceId)s %(spanId)s %(message)s"))
+handler = AzureLogHandler(connection_string='InstrumentationKey=ff40e07d-6204-431b-90e3-cc4deed86732')
+handler.setFormatter(logging.Formatter('%(traceId)s %(spanId)s %(message)s'))
 logger.addHandler(handler)
-# Logging custom Events
-logger.addHandler(
-    AzureEventHandler(
-        connection_string="InstrumentationKey=ff40e07d-6204-431b-90e3-cc4deed86732"
-    )
-)
-# Set the logging level
+# Set logging event
+logger.addHandler(AzureEventHandler(connection_string='InstrumentationKey=ff40e07d-6204-431b-90e3-cc4deed86732'))
+# Set logging level
 logger.setLevel(logging.INFO)
 
 # Metrics
-exporter = metrics_exporter.new_metrics_exporter(
-    enable_standard_metrics=True,
-    connection_string="InstrumentationKey=ff40e07d-6204-431b-90e3-cc4deed86732",
-)
+exporter = metrics_exporter.new_metrics_exporter(enable_standard_metrics=True, connection_string='InstrumentationKey=ff40e07d-6204-431b-90e3-cc4deed86732')
 view_manager.register_exporter(exporter)
 
 # Tracing
-tracer = Tracer(
-    exporter=AzureExporter(
-        connection_string="InstrumentationKey=ff40e07d-6204-431b-90e3-cc4deed86732"
-    ),
-    sampler=ProbabilitySampler(1.0),
-)
+tracer = Tracer(exporter=AzureExporter(connection_string='InstrumentationKey=ff40e07d-6204-431b-90e3-cc4deed86732'),sampler=ProbabilitySampler(1.0),)
 
 app = Flask(__name__)
 
 # Requests
 middleware = FlaskMiddleware(
     app,
-    exporter=AzureExporter(
-        connection_string="InstrumentationKey=ff40e07d-6204-431b-90e3-cc4deed86732"
-    ),
-    sampler=ProbabilitySampler(rate=1.0),
+    exporter=AzureExporter(connection_string="InstrumentationKey=ff40e07d-6204-431b-90e3-cc4deed86732"),
+    sampler=ProbabilitySampler(rate=1.0)
 )
 
 # Load configurations from environment or config file
@@ -89,7 +73,21 @@ else:
     title = app.config['TITLE']
 
 # Redis Connection
-r = redis.Redis()
+# r = redis.Redis()
+# Redis configurations
+redis_server = os.environ['REDIS']
+
+# Redis Connection to another container
+try:
+   if "REDIS_PWD" in os.environ:
+      r = redis.StrictRedis(host=redis_server,
+                        port=6379,
+                        password=os.environ['REDIS_PWD'])
+   else:
+      r = redis.Redis(redis_server)
+   r.ping()
+except redis.ConnectionError:
+   exit('Failed to connect to Redis, terminating.')
 
 # Change title to host name to demo NLB
 if app.config['SHOWHOST'] == "true":
@@ -106,13 +104,14 @@ def index():
 
         # Get current values
         vote1 = r.get(button1).decode('utf-8')
-        # TODO: use tracer object to trace cat vote
+        # Use tracer object to trace cat vote
         with tracer.span(name="Cats Vote") as span:
             print("Cats Vote")
         vote2 = r.get(button2).decode('utf-8')
-        # TODO: use tracer object to trace dog vote
+        # Use tracer object to trace dog vote
         with tracer.span(name="Dogs Vote") as span:
             print("Dogs Vote")
+
 
         # Return index with values
         return render_template("index.html", value1=int(vote1), value2=int(vote2), button1=button1, button2=button2, title=title)
@@ -120,19 +119,17 @@ def index():
     elif request.method == 'POST':
 
         if request.form['vote'] == 'reset':
-
             # Empty table and return results
             r.set(button1,0)
             r.set(button2,0)
             vote1 = r.get(button1).decode('utf-8')
             properties = {'custom_dimensions': {'Cats Vote': vote1}}
-            # TODO: use logger object to log cat vote
-            logger.info("Cats Vote", extra=properties)
-
+            # Use logger object to log cat vote
+            logger.info('Cats Vote', extra=properties)
             vote2 = r.get(button2).decode('utf-8')
             properties = {'custom_dimensions': {'Dogs Vote': vote2}}
-            # TODO: use logger object to log dog vote
-            logger.info("Dogs Vote", extra=properties)
+            # Use logger object to log dog vote
+            logger.info('Dogs Vote', extra=properties)
 
             return render_template("index.html", value1=int(vote1), value2=int(vote2), button1=button1, button2=button2, title=title)
 
@@ -144,13 +141,18 @@ def index():
 
             # Get current values
             vote1 = r.get(button1).decode('utf-8')
+            properties = {'custom_dimensions': {'Cats Vote': vote1}}
+            logger.info('Cats Vote', extra=properties)
+
             vote2 = r.get(button2).decode('utf-8')
+            properties = {'custom_dimensions': {'Dogs Vote': vote2}}
+            logger.info('Dogs Vote', extra=properties)
 
             # Return results
             return render_template("index.html", value1=int(vote1), value2=int(vote2), button1=button1, button2=button2, title=title)
 
 if __name__ == "__main__":
-    # TODO: Use the statement below when running locally
+    # Use the statement below when running locally
     app.run() 
     # TODO: Use the statement below before deployment to VMSS
     # app.run(host='0.0.0.0', threaded=True, debug=True) # remote
